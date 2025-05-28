@@ -8,10 +8,7 @@ open Lox
 
 let trim s =
   let n = String.length s in
-  if n > 0 && s.[n-1] = '\n' then
-    String.sub s 0 (n-1)
-  else
-    s
+  if n > 0 && s.[n - 1] = '\n' then String.sub s 0 (n - 1) else s
 ;;
 
 let empty_input s =
@@ -20,11 +17,16 @@ let empty_input s =
 ;;
 
 let run line =
-  if empty_input line then
-    print_string line
-  else
+  if empty_input line
+  then print_string line
+  else (
     let tokens = Lexer.tokenize line in
-    List.iter print_endline tokens
+    List.iter
+      (fun te ->
+         match te with
+         | Ok _t -> print_endline "token"
+         | Error _e -> print_endline "error")
+      tokens)
 ;;
 
 let run_prompt _ =
@@ -34,10 +36,8 @@ let run_prompt _ =
       let input = read_line () in
       run input
     with
-    | End_of_file ->
-      exit 0
-    | e ->
-      raise e
+    | End_of_file -> exit 0
+    | e -> raise e
   done
 ;;
 
@@ -47,7 +47,7 @@ let run_file filename =
     let line = really_input_string channel (in_channel_length channel) in
     run line;
     flush stdout;
-    close_in channel;
+    close_in channel
   with
   | e ->
     close_in_noerr channel;

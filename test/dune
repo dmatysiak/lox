@@ -1,2 +1,4 @@
-(test
- (name test_lox))
+(tests
+ (names
+   Test_lexer)
+ (libraries lox ounit2))

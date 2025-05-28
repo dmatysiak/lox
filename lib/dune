@@ -1,5 +1,9 @@
 (library
  (name lox)
- (modules
-   Error
-   Lexer))
+ (preprocess (pps ppx_deriving.show))
+ (libraries ppx_deriving.runtime)
+ (modules Error
+          Lox_option
+          Lox_result
+          Lexer
+          Lexer_types))

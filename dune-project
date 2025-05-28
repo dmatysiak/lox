@@ -12,4 +12,6 @@
 (package
  (name lox)
  (synopsis "An OCaml implementation of Robert Nystrom's `lox` language")
- (depends ocaml dune))
+ (depends ocaml
+          ounit2
+          dune))

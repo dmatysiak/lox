@@ -6,6 +6,7 @@ homepage: "https://github.com/dmatysiak/lox"
 bug-reports: "https://github.com/dmatysiak/lox/issues"
 depends: [
   "ocaml"
+  "ounit2"
   "dune" {>= "3.15"}
   "odoc" {with-doc}
 ]
