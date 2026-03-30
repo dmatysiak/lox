@@ -40,6 +40,7 @@ type token_type
   | Comment
   | Eof
 [@@deriving show]
+;;
 
 type line = int
 [@@deriving show]
@@ -77,6 +78,14 @@ type error =
 [@@deriving show]
 ;;
 
-type tokens = (token, error) result list
+type token_result = (token, error) result
+[@@deriving show]
+;;
+
+type tokens = token_result list
+[@@deriving show]
+;;
+
+type heh = string option
 [@@deriving show]
 ;;

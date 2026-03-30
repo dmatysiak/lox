@@ -6,6 +6,7 @@ val adjust_line : char option -> int -> int
 val adjust_column : char option -> int -> int
 val advance : cursor -> cursor
 val peek : cursor -> char option
+val seek_next_whitespace : cursor -> cursor
 val seek_next_token : cursor -> cursor
 val seek_newline : cursor -> cursor
 val chars_to_string : char list option -> string option

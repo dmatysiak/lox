@@ -9,7 +9,7 @@ let first_char s =
 
 let rest_chars s =
   let rem_length = String.length s - 1 in
-  if rem_length > 1 then
+  if rem_length >= 1 then
     Some (String.sub s 1 rem_length )
   else
     None
@@ -44,12 +44,35 @@ let peek (Cursor { input ; _ }) =
   Lox_option.( input >>= fun s -> first_char s )
 ;;
 
-let rec seek_next_token (Cursor {curr_char ; input ; _ } as pos_info) =
-  match curr_char, input with
-  | None, Some _ -> seek_next_token (advance pos_info)
+let rec seek_next_whitespace (Cursor { curr_char ; input ; _ } as pos_info) =
+match curr_char, input with
+  | None, Some _ -> seek_next_whitespace (advance pos_info)
   | Some c, Some _ ->
     (match c with
-     | (' ' | '\r' | '\t') -> seek_next_token (advance pos_info)
+     | (' ' | '\r' | '\t') ->  pos_info
+     | _ -> seek_next_whitespace (advance pos_info))
+  | Some _, None -> pos_info
+  | None, None -> pos_info
+;;
+
+let rec seek_next_token (Cursor {curr_char ; input ; _ } as pos_info) =
+  match curr_char, input with
+  | None, Some _ -> seek_next_token_inflight (advance pos_info)
+  | Some c, Some _ ->
+    (match c with
+     | (' ' | '\r' | '\t') -> seek_next_token_inflight (advance pos_info)
+     | _ ->
+        pos_info
+        |> seek_next_whitespace
+        |> seek_next_token_inflight)
+  | Some _, None -> pos_info
+  | None, None -> pos_info
+and seek_next_token_inflight (Cursor {curr_char ; input ; _ } as pos_info) =
+  match curr_char, input with
+  | None, Some _ -> seek_next_token_inflight (advance pos_info)
+  | Some c, Some _ ->
+    (match c with
+     | (' ' | '\r' | '\t') -> seek_next_token_inflight (advance pos_info)
      | _ -> pos_info)
   | Some _, None -> pos_info
   | None, None -> pos_info
@@ -58,7 +81,8 @@ let rec seek_next_token (Cursor {curr_char ; input ; _ } as pos_info) =
 let rec seek_newline (Cursor {curr_char ; input ; _ } as pos_info) =
   match curr_char, input with
   | None, Some _ -> seek_newline (advance pos_info)
-  | Some '\n', Some _ -> advance pos_info
+  | Some '\n', Some _ -> pos_info
+  | Some _, Some _ -> seek_newline (advance pos_info)
   | _, _ -> pos_info
 ;;
 
@@ -67,12 +91,17 @@ let chars_to_string cso =
   | Some cs ->
     Some
       (cs
-       |> List.map (fun c -> Printf.sprintf "%c" c)
+       |> List.map (String.make 1)
        |> String.concat "")
   | None -> None
 ;;
 
-let mk_token (Cursor { line ; column ; _ }) lexeme_chars literal_chars token_type =
+let mk_token
+      (Cursor { line ; column ; _ }) (* This is the start position... *)
+      (* ...we should also take the end position to get the range. *)
+      lexeme_chars
+      literal_chars
+      token_type =
   Ok (Token { token_type = token_type
             ; lexeme = chars_to_string lexeme_chars
             ; literal = chars_to_string literal_chars
@@ -94,46 +123,81 @@ let match_bang pos_info =
   match (peek pos_info) with
   | Some '=' ->
     let next_pos_info = advance (advance pos_info) in
-    (next_pos_info, mk_token pos_info (Some [bang_char; '=']) None BangEqual)
+    ( next_pos_info
+    , mk_token pos_info (Some [bang_char; '=']) None BangEqual )
   | Some _ ->
     let next_pos_info = advance pos_info in
-    (next_pos_info, mk_token pos_info (Some [bang_char]) None Bang)
-  | None -> (pos_info, mk_token pos_info None None Eof)
+    ( next_pos_info
+    , mk_token pos_info (Some [bang_char]) None Bang )
+  | None ->
+     ( pos_info
+     , mk_token pos_info None None Eof )
 ;;
 
 let match_equality pos_info c tok_ty_0 tok_ty_1 =
   match (peek pos_info) with
   | Some '=' ->
     let next_pos_info = advance (advance pos_info) in
-    (next_pos_info, mk_token pos_info (Some [c; '=']) None tok_ty_0)
+    ( next_pos_info
+    , mk_token pos_info (Some [c; '=']) None tok_ty_0 )
   | Some _ ->
     let next_pos_info = advance pos_info in
-    (next_pos_info, mk_token pos_info (Some [c]) None tok_ty_1)
-  | None -> (pos_info, mk_token pos_info None None Eof)
+    ( next_pos_info
+    , mk_token pos_info (Some [c]) None tok_ty_1 )
+  | None ->
+     ( pos_info
+     , mk_token pos_info None None Eof )
 ;;
 
 let match_slash pos_info =
   let slash_char = '/' in
   match (peek pos_info) with
   | Some '/' ->
-    let next_pos_info = seek_newline pos_info in
-    (next_pos_info, mk_token pos_info (Some [slash_char; '/']) None Comment)
+    let next_pos_info = advance (seek_newline pos_info) in
+    ( next_pos_info
+    , mk_token pos_info (Some [slash_char; '/']) None Comment )
   | Some _ ->
     let next_pos_info = advance pos_info in
-    (next_pos_info, mk_token pos_info (Some [slash_char]) None Slash)
-  | None -> (pos_info, mk_token pos_info None None Eof)
+    ( next_pos_info
+    , mk_token pos_info (Some [slash_char]) None Slash )
+  | None ->
+     ( pos_info
+     , mk_token pos_info None None Eof )
 ;;
 
+type smsg = string option [@@deriving show]
+type cmsg = char option [@@deriving show]
+
 let match_string_literal pos_info =
-  let rec seek_end_of_string init_pos_info (Cursor {curr_char ; input ; _ } as pos_info) string_chars =
+  let rec seek_end_of_string
+            init_pos_info
+            (Cursor {curr_char ; input ; _ } as pos_info)
+            string_chars =
     match curr_char, input with
-    | None, Some _ -> (pos_info, mk_error init_pos_info "Uninitiated string")
-    | Some '"', _ ->
+    | None, Some _ ->
+       ( pos_info
+       , mk_error init_pos_info "Uninitiated string" )
+    | Some '"', _ -> (* TODO. We don't handle escaped quotes. *)
       let contents = List.rev string_chars in
-      (advance pos_info, mk_token init_pos_info (Some contents) (Some (List.concat [['"'] ; contents ; ['"']])) String)
-    | Some c, Some _ -> seek_end_of_string init_pos_info (advance pos_info) (c :: string_chars)
-    | Some _, None -> (pos_info, mk_error pos_info "Unterminated string")
-    | None, None -> (pos_info, mk_token pos_info None None Eof)
+      ( advance pos_info
+      , mk_token
+          init_pos_info
+          (Some contents)
+          (Some (List.concat [['"']
+                            ; contents
+                            ; ['"']]))
+          String )
+    | Some c, Some _ ->
+       seek_end_of_string
+         init_pos_info
+         (advance pos_info)
+         (c :: string_chars)
+    | Some _, None ->
+       ( pos_info
+       , mk_error pos_info "Unterminated string" )
+    | None, None ->
+       ( pos_info
+       , mk_token pos_info None None Eof )
   in
   seek_end_of_string pos_info (advance pos_info) []
 ;;
@@ -141,29 +205,36 @@ let match_string_literal pos_info =
 let match_tok (Cursor { curr_char ; _ } as pos_info) =
   match curr_char with
   | Some c ->
-    (match c with
-     (* single character *)
-     | '(' -> (advance pos_info, mk_token pos_info (Some [c]) None LeftParen)
-     | ')' -> (advance pos_info, mk_token pos_info (Some [c]) None RightParen)
-     | '{' -> (advance pos_info, mk_token pos_info (Some [c]) None LeftBrace)
-     | '}' -> (advance pos_info, mk_token pos_info (Some [c]) None RightBrace)
-     | ',' -> (advance pos_info, mk_token pos_info (Some [c]) None Comma)
-     | '.' -> (advance pos_info, mk_token pos_info (Some [c]) None Dot)
-     | '-' -> (advance pos_info, mk_token pos_info (Some [c]) None Minus)
-     | '+' -> (advance pos_info, mk_token pos_info (Some [c]) None Plus)
-     | ';' -> (advance pos_info, mk_token pos_info (Some [c]) None Semicolon)
-     | '*' -> (advance pos_info, mk_token pos_info (Some [c]) None Star)
-     (* multiple character *)
-     | '!' -> match_bang pos_info
-     | '=' -> match_equality pos_info c EqualEqual Equal
-     | '<' -> match_equality pos_info c LessEqual Less
-     | '>' -> match_equality pos_info c GreaterEqual Greater
-     | '/' -> match_slash pos_info
-     (* literals *)
-     | '"' -> match_string_literal pos_info
-     (* unrecognized character *)
-     | unrecognized -> (pos_info, mk_error pos_info (Printf.sprintf "Unrecognized character '%c'" unrecognized)))
-  | None -> (pos_info, mk_token pos_info None None Eof)
+     (match c with
+      (* single character *)
+      | '(' -> (advance pos_info, mk_token pos_info (Some [c]) None LeftParen)
+      | ')' -> (advance pos_info, mk_token pos_info (Some [c]) None RightParen)
+      | '{' -> (advance pos_info, mk_token pos_info (Some [c]) None LeftBrace)
+      | '}' -> (advance pos_info, mk_token pos_info (Some [c]) None RightBrace)
+      | ',' -> (advance pos_info, mk_token pos_info (Some [c]) None Comma)
+      | '.' -> (advance pos_info, mk_token pos_info (Some [c]) None Dot)
+      | '-' -> (advance pos_info, mk_token pos_info (Some [c]) None Minus)
+      | '+' -> (advance pos_info, mk_token pos_info (Some [c]) None Plus)
+      | ';' -> (advance pos_info, mk_token pos_info (Some [c]) None Semicolon)
+      | '*' -> (advance pos_info, mk_token pos_info (Some [c]) None Star)
+
+      (* multiple character *)
+      | '!' -> match_bang pos_info
+      | '=' -> match_equality pos_info c EqualEqual Equal
+      | '<' -> match_equality pos_info c LessEqual Less
+      | '>' -> match_equality pos_info c GreaterEqual Greater
+      | '/' -> match_slash pos_info
+
+      (* literals *)
+      | '"' -> match_string_literal pos_info
+
+      (* unrecognized character *)
+      | unrecognized ->
+         ( pos_info
+         , mk_error pos_info (Printf.sprintf "Unrecognized character '%c'" unrecognized) ))
+  | None ->
+     ( pos_info
+     , mk_token pos_info None None Eof )
 ;;
 
 let rec scan_token (Cursor { input ; curr_char ; _ } as pos_info) tokens =
